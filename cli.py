@@ -5,14 +5,31 @@ import argparse
 import csv
 import json
 import sys
+from pathlib import Path
+
 from agents.models import SystemTaskPayload
 from agents.supervisor import SystemSupervisor
-from agents.base import AuditLogger
+from agents.base import AuditLogger, SecurityException
 
 supervisor = SystemSupervisor(model_provider="mock")
 
 
+def _validate_file_path(filepath, must_exist=False):
+    """Validate file path for security - prevent path traversal."""
+    path = Path(filepath).resolve()
+
+    if must_exist and not path.exists():
+        raise FileNotFoundError(f"File not found: {filepath}")
+
+    # Check for path traversal attempts
+    if ".." in str(path):
+        raise ValueError(f"Path traversal detected in: {filepath}")
+
+    return path
+
+
 def main(argv=None):
+    """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(prog="qt-nomogram-risk", description="Qt Nomogram Risk")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -45,18 +62,23 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == "audit":
-        payload = SystemTaskPayload(
-            task_id=args.task_id,
-            target_identifier=args.target,
-            primary_metric=args.primary,
-            secondary_metric=args.secondary,
-            status_descriptor=args.status,
-            is_critical_flag=args.critical,
-        )
-        dossier = supervisor.process_task(payload)
+        try:
+            payload = SystemTaskPayload(
+                task_id=args.task_id,
+                target_identifier=args.target,
+                primary_metric=args.primary,
+                secondary_metric=args.secondary,
+                status_descriptor=args.status,
+                is_critical_flag=args.critical,
+            )
+            dossier = supervisor.process_task(payload)
+        except SecurityException as e:
+            print(f"Security Error: {e}", file=sys.stderr)
+            return 1
+
         print("=" * 80)
-        print(f"  QT NOMOGRAM RISK")
-        print(f"  Domain: Clinical & Biomedical AI | Standard: CAP / CLSI / ISO Standards")
+        print("  QT NOMOGRAM RISK")
+        print("  Domain: Clinical & Biomedical AI | Standard: CAP / CLSI / ISO Standards")
         print(f"  Dossier ID: {dossier.dossier_id} | Urgency: [{dossier.overall_urgency.value}]")
         print("=" * 80)
         for a in dossier.alerts:
@@ -69,8 +91,12 @@ def main(argv=None):
         return 0
 
     if args.command == "chat":
-        ans = supervisor.query_supervisory_chat(" ".join(args.query))
-        print(f"\n[Qt Nomogram Risk Supervisor]:\n{ans}\n")
+        try:
+            ans = supervisor.query_supervisory_chat(" ".join(args.query))
+            print(f"\n[Qt Nomogram Risk Supervisor]:\n{ans}\n")
+        except SecurityException as e:
+            print(f"Security Error: {e}", file=sys.stderr)
+            return 1
         return 0
 
     if args.command == "verify-audit":
@@ -80,35 +106,50 @@ def main(argv=None):
         return 0
 
     if args.command == "batch":
-        with open(args.input, mode="r", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            fieldnames = list(reader.fieldnames or [])
-            rows = list(reader)
+        try:
+            inp_path = _validate_file_path(args.input, must_exist=True)
+            out_path = _validate_file_path(args.output)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
 
-        out_fields = fieldnames + ["overall_urgency", "integrity_status", "total_alerts", "audit_hash"]
-        out_rows = []
-        for r in rows:
-            payload = SystemTaskPayload(
-                task_id=r.get("task_id", "TASK-01"),
-                target_identifier=r.get("target_identifier", "TARGET-01"),
-                primary_metric=float(r.get("primary_metric", 15.0)),
-                secondary_metric=float(r.get("secondary_metric", 5.0)),
-                status_descriptor=r.get("status_descriptor", "NOMINAL"),
-                is_critical_flag=bool(r.get("is_critical_flag", False)),
-            )
-            dossier = supervisor.process_task(payload)
-            row_dict = dict(r)
-            row_dict["overall_urgency"] = dossier.overall_urgency.value
-            row_dict["integrity_status"] = dossier.integrity_status.value
-            row_dict["total_alerts"] = dossier.total_alerts
-            row_dict["audit_hash"] = dossier.audit_hash
-            out_rows.append(row_dict)
+        try:
+            with open(inp_path, mode="r", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                fieldnames = list(reader.fieldnames or [])
+                rows = list(reader)
 
-        with open(args.output, mode="w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=out_fields)
-            writer.writeheader()
-            writer.writerows(out_rows)
-        print(f"Processed {len(out_rows)} records -> {args.output}")
+            out_fields = fieldnames + ["overall_urgency", "integrity_status", "total_alerts", "audit_hash"]
+            out_rows = []
+            for r in rows:
+                try:
+                    payload = SystemTaskPayload(
+                        task_id=r.get("task_id", "TASK-01"),
+                        target_identifier=r.get("target_identifier", "TARGET-01"),
+                        primary_metric=float(r.get("primary_metric", 15.0)),
+                        secondary_metric=float(r.get("secondary_metric", 5.0)),
+                        status_descriptor=r.get("status_descriptor", "NOMINAL"),
+                        is_critical_flag=str(r.get("is_critical_flag", "")).lower() in ("1", "true", "yes"),
+                    )
+                    dossier = supervisor.process_task(payload)
+                    row_dict = dict(r)
+                    row_dict["overall_urgency"] = dossier.overall_urgency.value
+                    row_dict["integrity_status"] = dossier.integrity_status.value
+                    row_dict["total_alerts"] = dossier.total_alerts
+                    row_dict["audit_hash"] = dossier.audit_hash
+                    out_rows.append(row_dict)
+                except (SecurityException, ValueError) as e:
+                    print(f"Warning: Skipping row due to error: {e}", file=sys.stderr)
+                    continue
+
+            with open(out_path, mode="w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=out_fields)
+                writer.writeheader()
+                writer.writerows(out_rows)
+            print(f"Processed {len(out_rows)} records -> {args.output}")
+        except Exception as e:
+            print(f"Error processing batch: {e}", file=sys.stderr)
+            return 1
         return 0
 
     if args.command == "serve":
