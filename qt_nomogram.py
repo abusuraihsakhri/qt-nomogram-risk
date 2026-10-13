@@ -74,20 +74,16 @@ def calculate_qtc(qt_ms, rr_ms=None, hr_bpm=None):
 
     qtc = qt / math.sqrt(rr_seconds)
 
-    # Legacy Bazett QTc screening bands; these are NOT the Chan QT-HR nomogram.
-    if qtc > 500:
-        risk = "HIGH_RISK_TORSADES"
-    elif qtc > 450:
-        risk = "BORDERLINE_ELEVATED"
-    else:
-        risk = "NORMAL"
+    # A QTc threshold is a screening marker, not a Chan QT–HR risk zone.
+    screen_positive = qtc >= 500.0
 
     return {
         "qt_ms": round(qt, 1),
         "rr_ms": round(rr, 1),
         "qtc_ms": round(qtc, 1),
-        "risk_zone": risk,
-        "at_risk": qtc > 450,
+        "risk_zone": "BAZETT_QTC_GE_500" if screen_positive else "BAZETT_QTC_LT_500",
+        "at_risk": None,  # True nomogram TdP risk has not been assessed.
+        "qtc_screen_positive": screen_positive,
         "assessment_method": "Bazett QTc screening (not Chan QT nomogram)",
         "nomogram_assessed": False,
         "hr_bpm": round(60000.0 / rr, 1),
