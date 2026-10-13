@@ -37,7 +37,8 @@ dev = [
 ]
 
 [project.scripts]
-qt-nomogram-risk = "cli:main"
+qt-nomogram-risk = "qt_nomogram:main"
+qt-nomogram-audit = "cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "."]
@@ -47,3 +48,4 @@ addopts = "-v --tb=short"
 
 [tool.setuptools]
 packages = ["agents"]
+py-modules = ["qt_nomogram", "cli", "enrichment", "simulator"]
