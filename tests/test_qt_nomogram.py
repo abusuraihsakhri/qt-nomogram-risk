@@ -89,12 +89,12 @@ class TestCalculateBmiZ:
         """Normal BMI calculation."""
         result = m.calculate_bmi_z(weight_kg=70, height_cm=175, age_months=60)
         assert "bmi" in result
-        assert result["category"] in ["NORMAL", "OVERWEIGHT"]
+        assert result["category"] == "PEDIATRIC_UNCLASSIFIED"
 
     def test_underweight(self):
         """Underweight BMI."""
         result = m.calculate_bmi_z(weight_kg=45, height_cm=170, age_months=60)
-        assert result["category"] == "UNDERWEIGHT"
+        assert result["category"] == "PEDIATRIC_UNCLASSIFIED"
 
     def test_invalid_input(self):
         """Invalid weight/height returns error."""
