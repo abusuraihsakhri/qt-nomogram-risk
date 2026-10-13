@@ -15,19 +15,8 @@ from pathlib import Path
 
 
 def calculate_score(**kwargs):
-    """Generic formula stub: weighted sum of numeric inputs."""
-    vals = [
-        float(v)
-        for v in kwargs.values()
-        if isinstance(v, (int, float))
-        or (isinstance(v, str) and v.replace(".", "", 1).replace("-", "", 1).isdigit())
-    ]
-    if not vals:
-        vals = [float(kwargs.get("value", 1))]
-    # distinct per-project via slug hash
-    h = sum(ord(c) for c in "qt-nomogram-risk") % 10
-    score = sum(vals) * (0.9 + h * 0.02) + math.log1p(len(vals))
-    return {"score": round(score, 2), "inputs": len(vals)}
+    """Deprecated stub: never fabricate a clinical risk score."""
+    return {"error": "A generic risk score cannot be calculated without a specified validated model"}
 
 
 def _safe_float(value, default=None):
@@ -35,7 +24,8 @@ def _safe_float(value, default=None):
     if value is None:
         return default
     try:
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else default
     except (ValueError, TypeError):
         return default
 
@@ -54,15 +44,18 @@ def calculate_qtc(qt_ms, rr_ms=None, hr_bpm=None):
         dict with qtc value and risk assessment
     """
     qt = _safe_float(qt_ms)
-    if qt is None or qt <= 0:
-        return {"error": "Invalid QT interval", "qt_ms": qt_ms}
+    if qt is None or not (100 <= qt <= 1000):
+        return {"error": "QT must be a finite value from 100 to 1000 ms", "qt_ms": qt_ms}
 
-    rr = _safe_float(rr_ms)
-    if rr is None or rr <= 0:
+    if rr_ms is not None and str(rr_ms).strip() != "":
+        rr = _safe_float(rr_ms)
+        if rr is None or not (60000 / 220 <= rr <= 3000):
+            return {"error": "RR interval must be a finite value corresponding to 20–220 bpm", "rr_ms": rr_ms}
+    else:
         hr = _safe_float(hr_bpm)
-        if hr is None or hr <= 0:
-            return {"error": "Either RR interval or heart rate required", "qt_ms": qt_ms}
-        rr = 60000.0 / hr  # Convert HR to RR in ms
+        if hr is None or not (20 <= hr <= 220):
+            return {"error": "Heart rate must be a finite value from 20 to 220 bpm"}
+        rr = 60000.0 / hr
 
     rr_seconds = rr / 1000.0
     if rr_seconds <= 0:
@@ -70,61 +63,55 @@ def calculate_qtc(qt_ms, rr_ms=None, hr_bpm=None):
 
     qtc = qt / math.sqrt(rr_seconds)
 
-    # Chan nomogram risk zones (simplified)
-    # QTc > 500 ms or > 60 ms from baseline = high risk
-    if qtc > 500:
-        risk = "HIGH_RISK_TORSADES"
-    elif qtc > 450:
-        risk = "BORDERLINE_ELEVATED"
-    else:
-        risk = "NORMAL"
+    # A QTc threshold is a screening marker, not a Chan QT–HR risk zone.
+    screen_positive = qtc >= 500.0
 
     return {
         "qt_ms": round(qt, 1),
         "rr_ms": round(rr, 1),
         "qtc_ms": round(qtc, 1),
-        "risk_zone": risk,
-        "at_risk": qtc > 450,
+        "risk_zone": "BAZETT_QTC_GE_500" if screen_positive else "BAZETT_QTC_LT_500",
+        "at_risk": None,  # True nomogram TdP risk has not been assessed.
+        "qtc_screen_positive": screen_positive,
+        "assessment_method": "Bazett QTc screening (not Chan QT nomogram)",
+        "nomogram_assessed": False,
+        "hr_bpm": round(60000.0 / rr, 1),
     }
 
 
 def calculate_meld_na(bilirubin, creatinine, inr, sodium=None, dialysis=False, albumin=None, sex="M"):
+    """Calculate the historical MELD-Na score (not MELD 3.0).
+
+    Units: bilirubin/creatinine mg/dL; sodium mEq/L. This historical
+    implementation must not be used for current transplant allocation.
     """
-    Calculate MELD-Na score for liver disease severity.
-    MELD = 3.78*ln(bilirubin) + 11.2*ln(INR) + 9.57*creatinine + 6.43
-    """
-    bili = _safe_float(bilirubin, 0)
-    creat = _safe_float(creatinine, 0)
-    inr_val = _safe_float(inr, 1.0)
-    na = _safe_float(sodium, 140)
-
-    # Apply MELD constraints
-    bili = max(1.0, bili)
-    creat = max(1.0, creat)
-    if dialysis:
-        creat = max(4.0, creat)
-    inr_val = max(1.0, inr_val)
-    na = max(125, min(140, na))
-
-    meld = (
-        3.78 * math.log(bili)
-        + 11.2 * math.log(inr_val)
-        + 9.57 * math.log(creat)
-        + 6.43
-    )
-    meld_na = meld + 1.32 * (137 - na) - (0.033 * meld * (137 - na))
-    meld_na = max(6, round(meld_na))
-
-    if meld_na >= 40:
-        priority = "STATUS_1A"
-    elif meld_na >= 30:
+    bili = _safe_float(bilirubin)
+    creat = _safe_float(creatinine)
+    inr_val = _safe_float(inr)
+    na = _safe_float(sodium) if sodium is not None and str(sodium).strip() != "" else None
+    if any(x is None or x <= 0 for x in (bili, creat, inr_val)):
+        return {"error": "Bilirubin, creatinine and INR must be finite positive numbers"}
+    if sodium is not None and str(sodium).strip() != "" and na is None:
+        return {"error": "Sodium must be a finite number"}
+    bili, inr_val = max(1.0, bili), max(1.0, inr_val)
+    creat = 4.0 if dialysis else min(4.0, max(1.0, creat))
+    meld = 3.78 * math.log(bili) + 11.2 * math.log(inr_val) + 9.57 * math.log(creat) + 6.43
+    meld = max(6.0, min(40.0, meld))
+    if na is not None:
+        na = max(125.0, min(137.0, na))
+        meld += 1.32 * (137.0 - na) - 0.033 * meld * (137.0 - na)
+    meld_na = min(40, max(6, round(meld)))
+    if meld_na >= 30:
         priority = "HIGH_PRIORITY"
     elif meld_na >= 20:
         priority = "MODERATE"
     else:
         priority = "LOW"
-
-    return {"meld_na": meld_na, "priority": priority}
+    return {
+        "meld_na": meld_na, "priority": priority,
+        "method": "Historical MELD-Na, not MELD 3.0",
+        "warning": "Educational calculation only; not for allocation or clinical decisions",
+    }
 
 
 def calculate_bmi_z(weight_kg, height_cm, age_months, sex="M"):
@@ -161,12 +148,18 @@ def calculate_bmi_z(weight_kg, height_cm, age_months, sex="M"):
     else:
         category = "OBESE"
 
+    pediatric = age is not None and 0 <= age < 240
     result = {
         "bmi": round(bmi, 1),
-        "category": category,
+        "category": "PEDIATRIC_UNCLASSIFIED" if pediatric else category,
+        "category_note": (
+            "Age- and sex-specific growth reference required; adult BMI categories do not apply"
+            if pediatric else "Adult BMI cutoffs; confirm patient is an adult"
+        ),
     }
     if z_score is not None:
-        result["z_score"] = round(z_score, 2)
+        result["z_score"] = None  # WHO reference tables not implemented
+        result["z_score_note"] = "WHO age/sex reference data are required; no z-score calculated"
     return result
 
 
@@ -294,7 +287,7 @@ def assess_row(row):
             )
 
         # Fallback: generic score
-        return calculate_score(**row)
+        return {"error": "Unsupported input columns; provide qt_ms and hr_bpm/rr_ms or another supported clinical schema"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -348,7 +341,7 @@ def process_csv(inp, out):
     all_keys = set()
     for rr in results:
         all_keys.update(rr.keys())
-    extra = [k for k in all_keys if k not in fieldnames]
+    extra = sorted(k for k in all_keys if k not in fieldnames)
 
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(fieldnames) + extra)
@@ -412,7 +405,7 @@ def main(argv=None):
 
         result = assess_row(row)
         print(json.dumps(result, indent=2))
-        return 0
+        return 1 if "error" in result else 0
 
     if args.cmd == "batch":
         try:

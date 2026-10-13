@@ -1,3 +1,3 @@
-id,value,qty
-A,10,2
-B,20,3
+id,qt_ms,hr_bpm
+example-1,420,72
+example-2,500,60
