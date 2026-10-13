@@ -25,8 +25,8 @@ class ChatRequest(BaseModel):
 
 
 class QTRequest(BaseModel):
-    qt_ms: float = Field(gt=0, allow_inf_nan=False)
-    hr_bpm: float = Field(gt=0, allow_inf_nan=False)
+    qt_ms: float = Field(ge=100, le=1000, allow_inf_nan=False)
+    hr_bpm: float = Field(ge=20, le=220, allow_inf_nan=False)
 
 
 @app.get("/health")
