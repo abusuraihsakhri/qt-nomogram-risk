@@ -22,25 +22,27 @@ class TestCalculateQtc:
         """Normal QTc with heart rate."""
         result = m.calculate_qtc(qt_ms=400, hr_bpm=72)
         assert "qtc_ms" in result
-        assert result["risk_zone"] == "NORMAL"
-        assert result["at_risk"] is False
+        assert result["risk_zone"] == "BAZETT_QTC_LT_500"
+        assert result["at_risk"] is None
+        assert result["qtc_screen_positive"] is False
 
     def test_normal_qtc_with_rr(self):
         """Normal QTc with RR interval."""
         result = m.calculate_qtc(qt_ms=400, rr_ms=833)
         assert "qtc_ms" in result
-        assert result["risk_zone"] == "NORMAL"
+        assert result["risk_zone"] == "BAZETT_QTC_LT_500"
 
     def test_borderline_qtc(self):
         """Borderline elevated QTc."""
         result = m.calculate_qtc(qt_ms=460, hr_bpm=60)
         assert result["qtc_ms"] > 450
-        assert result["at_risk"] is True
+        assert result["at_risk"] is None
 
     def test_high_risk_qtc(self):
         """High risk QTc > 500ms."""
         result = m.calculate_qtc(qt_ms=520, hr_bpm=60)
-        assert result["risk_zone"] == "HIGH_RISK_TORSADES"
+        assert result["risk_zone"] == "BAZETT_QTC_GE_500"
+        assert result["qtc_screen_positive"] is True
         assert result["at_risk"] is True
 
     def test_invalid_qt(self):
