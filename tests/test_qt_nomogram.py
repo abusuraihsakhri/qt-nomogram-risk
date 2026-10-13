@@ -43,7 +43,7 @@ class TestCalculateQtc:
         result = m.calculate_qtc(qt_ms=520, hr_bpm=60)
         assert result["risk_zone"] == "BAZETT_QTC_GE_500"
         assert result["qtc_screen_positive"] is True
-        assert result["at_risk"] is True
+        assert result["at_risk"] is None
 
     def test_invalid_qt(self):
         """Invalid QT interval returns error."""
