@@ -15,19 +15,8 @@ from pathlib import Path
 
 
 def calculate_score(**kwargs):
-    """Generic formula stub: weighted sum of numeric inputs."""
-    vals = [
-        float(v)
-        for v in kwargs.values()
-        if isinstance(v, (int, float))
-        or (isinstance(v, str) and v.replace(".", "", 1).replace("-", "", 1).isdigit())
-    ]
-    if not vals:
-        vals = [float(kwargs.get("value", 1))]
-    # distinct per-project via slug hash
-    h = sum(ord(c) for c in "qt-nomogram-risk") % 10
-    score = sum(vals) * (0.9 + h * 0.02) + math.log1p(len(vals))
-    return {"score": round(score, 2), "inputs": len(vals)}
+    """Deprecated stub: never fabricate a clinical risk score."""
+    return {"error": "A generic risk score cannot be calculated without a specified validated model"}
 
 
 def _safe_float(value, default=None):
@@ -159,10 +148,14 @@ def calculate_bmi_z(weight_kg, height_cm, age_months, sex="M"):
     else:
         category = "OBESE"
 
+    pediatric = age is not None and 0 <= age < 240
     result = {
         "bmi": round(bmi, 1),
-        "category": category,
-        "category_note": "Adult BMI cutoffs only; not valid for pediatric classification",
+        "category": "PEDIATRIC_UNCLASSIFIED" if pediatric else category,
+        "category_note": (
+            "Age- and sex-specific growth reference required; adult BMI categories do not apply"
+            if pediatric else "Adult BMI cutoffs; confirm patient is an adult"
+        ),
     }
     if z_score is not None:
         result["z_score"] = None  # WHO reference tables not implemented
