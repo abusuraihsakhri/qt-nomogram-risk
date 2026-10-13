@@ -44,17 +44,17 @@ def calculate_qtc(qt_ms, rr_ms=None, hr_bpm=None):
         dict with qtc value and risk assessment
     """
     qt = _safe_float(qt_ms)
-    if qt is None or qt <= 0:
-        return {"error": "Invalid QT interval", "qt_ms": qt_ms}
+    if qt is None or not (100 <= qt <= 1000):
+        return {"error": "QT must be a finite value from 100 to 1000 ms", "qt_ms": qt_ms}
 
     if rr_ms is not None and str(rr_ms).strip() != "":
         rr = _safe_float(rr_ms)
-        if rr is None or rr <= 0:
-            return {"error": "RR interval must be a finite positive number", "rr_ms": rr_ms}
+        if rr is None or not (60000 / 220 <= rr <= 3000):
+            return {"error": "RR interval must be a finite value corresponding to 20–220 bpm", "rr_ms": rr_ms}
     else:
         hr = _safe_float(hr_bpm)
-        if hr is None or hr <= 0:
-            return {"error": "Either a finite positive RR interval or heart rate is required"}
+        if hr is None or not (20 <= hr <= 220):
+            return {"error": "Heart rate must be a finite value from 20 to 220 bpm"}
         rr = 60000.0 / hr
 
     rr_seconds = rr / 1000.0
