@@ -60,3 +60,9 @@ def test_audit_logs_require_configured_token(monkeypatch):
         assert client.get("/api/audit/logs", headers={
             "Authorization": "Bearer example-local-test-token"
         }).status_code == 200
+
+
+def test_qt_rejects_implausible_ranges():
+    assert "error" in calculate_qtc(400, hr_bpm=5)
+    assert "error" in calculate_qtc(400, rr_ms=100)
+    assert "error" in calculate_qtc(1500, hr_bpm=70)
